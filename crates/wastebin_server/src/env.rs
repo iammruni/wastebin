@@ -110,7 +110,7 @@ pub fn socket_type() -> Result<SocketType, Error> {
 
 pub fn max_body_size() -> Result<usize, Error> {
     std::env::var(vars::MAX_BODY_SIZE)
-        .map_or_else(|_| Ok(1024 * 1024), |s| s.parse::<usize>())
+        .map_or_else(|_| Ok(1024 * 1024 * 2), |s| s.parse::<usize>())
         .map_err(Error::MaxBodySize)
 }
 
