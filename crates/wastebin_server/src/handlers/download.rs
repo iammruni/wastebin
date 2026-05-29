@@ -18,6 +18,7 @@ pub async fn get(
     Path(id): Path<String>,
     State(db): State<Database>,
     State(page): State<Page>,
+    uri: axum::http::Uri,
     theme: Option<Theme>,
     lang: Lang,
     password: Option<Password>,
@@ -28,6 +29,9 @@ pub async fn get(
 
         match db.get(key.id, password).await {
             Ok(Entry::Regular(data) | Entry::Burned(data)) => {
+                if let Some(redirect) = crate::handlers::check_visibility(data.metadata.is_private, &uri, &id)? {
+                    return Ok(redirect.into_response());
+                }
                 Ok(get_download(&key, data).into_response())
             }
             Err(db::Error::NoPassword) => Ok(PasswordInput {
@@ -92,24 +96,24 @@ mod tests {
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
 
         let location = res.headers().get("location").unwrap().to_str()?;
-        let filename = &location[1..];
-        let res = client.get(&format!("/dl/{filename}.cpp")).send().await?;
+        let id = location.split('/').last().unwrap();
+        let res = client.get(&format!("/p/dl/{id}.cpp")).send().await?;
         assert_eq!(res.status(), StatusCode::OK);
 
         let content_disposition = res.headers().get(header::CONTENT_DISPOSITION).unwrap();
         assert_eq!(
             content_disposition.to_str()?,
-            format!("attachment; filename*=UTF-8''{filename}.cpp"),
+            format!("attachment; filename*=UTF-8''{id}.cpp"),
         );
 
         let content = res.text().await?;
         assert_eq!(content, "FooBarBaz");
 
-        let res = client.get(&format!("/dl{location}")).send().await?;
+        let res = client.get(&format!("/p/dl/{id}")).send().await?;
         let content_disposition = res.headers().get(header::CONTENT_DISPOSITION).unwrap();
         assert_eq!(
             content_disposition.to_str()?,
-            format!("attachment; filename*=UTF-8''{filename}"),
+            format!("attachment; filename*=UTF-8''{id}"),
         );
 
         Ok(())
@@ -126,7 +130,8 @@ mod tests {
 
         let res = client.post_form().form(&data).send().await?;
         let location = res.headers().get("location").unwrap().to_str()?;
-        let res = client.get(&format!("/dl{location}")).send().await?;
+        let id = location.split('/').last().unwrap();
+        let res = client.get(&format!("/p/dl/{id}")).send().await?;
         assert_eq!(res.status(), StatusCode::OK);
 
         let content_disposition = res.headers().get(header::CONTENT_DISPOSITION).unwrap();
@@ -149,7 +154,8 @@ mod tests {
 
         let res = client.post_form().form(&data).send().await?;
         let location = res.headers().get("location").unwrap().to_str()?;
-        let res = client.get(&format!("/dl{location}")).send().await?;
+        let id = location.split('/').last().unwrap();
+        let res = client.get(&format!("/p/dl/{id}")).send().await?;
         assert_eq!(res.status(), StatusCode::OK);
 
         let content_disposition = res.headers().get(header::CONTENT_DISPOSITION).unwrap();

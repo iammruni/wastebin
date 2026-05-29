@@ -14,6 +14,7 @@ pub async fn get(
     Path(id): Path<String>,
     State(db): State<Database>,
     State(page): State<Page>,
+    uri: axum::http::Uri,
     theme: Option<Theme>,
     lang: Lang,
     password: Option<Password>,
@@ -23,7 +24,12 @@ pub async fn get(
         let key: Key = id.parse()?;
 
         match db.get(key.id, password).await {
-            Ok(Entry::Regular(data) | Entry::Burned(data)) => Ok(data.text.into_response()),
+            Ok(Entry::Regular(data) | Entry::Burned(data)) => {
+                if let Some(redirect) = crate::handlers::check_visibility(data.metadata.is_private, &uri, &id)? {
+                    return Ok(redirect.into_response());
+                }
+                Ok(data.text.into_response())
+            }
             Err(db::Error::NoPassword) => Ok(PasswordInput {
                 page: page.clone(),
                 theme: theme.clone(),

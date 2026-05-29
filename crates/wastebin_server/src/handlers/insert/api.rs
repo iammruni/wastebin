@@ -15,6 +15,7 @@ pub(crate) struct Entry {
     pub burn_after_reading: Option<bool>,
     pub password: Option<String>,
     pub title: Option<String>,
+    pub visibility: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -24,6 +25,7 @@ pub(crate) struct RedirectResponse {
 
 impl From<Entry> for write::Entry {
     fn from(entry: Entry) -> Self {
+        let is_private = entry.visibility.map(|s| s == "private");
         Self {
             text: entry.text,
             extension: entry.extension,
@@ -32,6 +34,7 @@ impl From<Entry> for write::Entry {
             uid: None,
             password: entry.password,
             title: entry.title,
+            is_private,
         }
     }
 }
@@ -41,8 +44,10 @@ pub async fn post(
     Json(entry): Json<Entry>,
 ) -> Result<Json<RedirectResponse>, JsonErrorResponse> {
     let entry: write::Entry = entry.into();
+    let is_private = entry.is_private.unwrap_or(false);
     let (id, entry) = db.insert(entry).await.map_err(Error::Database)?;
-    let path = format!("/{}", id.to_url_path(&entry));
+    let prefix = if is_private { "/s" } else { "/p" };
+    let path = format!("{prefix}/{}", id.to_url_path(&entry));
 
     Ok(Json::from(RedirectResponse { path }))
 }
@@ -67,8 +72,9 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
 
         let payload = res.json::<super::RedirectResponse>().await?;
+        let id = payload.path.split('/').last().unwrap();
 
-        let res = client.get(&format!("/raw{}", payload.path)).send().await?;
+        let res = client.get(&format!("/p/raw/{id}")).send().await?;
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(res.text().await?, "FooBarBaz");
 
@@ -102,9 +108,10 @@ mod tests {
         assert_eq!(res.status(), StatusCode::OK);
 
         let payload = res.json::<super::RedirectResponse>().await?;
+        let id = payload.path.split('/').last().unwrap();
 
         let res = client
-            .get(&format!("/raw{}", payload.path))
+            .get(&format!("/p/raw/{id}"))
             .header(PASSWORD_HEADER_NAME, password)
             .send()
             .await?;

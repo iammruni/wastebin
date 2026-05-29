@@ -21,6 +21,7 @@ pub(crate) struct Entry {
     pub title: String,
     #[serde(rename = "burn-after-reading")]
     pub burn_after_reading: Option<String>,
+    pub visibility: Option<String>,
 }
 
 impl From<Entry> for write::Entry {
@@ -31,6 +32,7 @@ impl From<Entry> for write::Entry {
         let expires = entry
             .expires
             .and_then(|expires| expires.parse::<NonZeroU32>().ok());
+        let is_private = entry.visibility.map(|s| s == "private");
 
         Self {
             text: entry.text,
@@ -40,6 +42,7 @@ impl From<Entry> for write::Entry {
             uid: None,
             password,
             title,
+            is_private,
         }
     }
 }
@@ -67,15 +70,17 @@ pub async fn post<E: std::fmt::Debug>(
 
         let mut entry: write::Entry = entry.into();
         entry.uid = Some(uid);
+        let is_private = entry.is_private.unwrap_or(false);
 
         let (id, entry) = db.insert(entry).await?;
 
         let url = {
             let url_path = id.to_url_path(&entry);
+            let prefix = if is_private { "/s" } else { "/p" };
             if entry.burn_after_reading.unwrap_or(false) {
-                format!("/burn/{url_path}")
+                format!("{prefix}/burn/{url_path}")
             } else {
-                format!("/{url_path}")
+                format!("{prefix}/{url_path}")
             }
         };
 
@@ -122,8 +127,9 @@ mod tests {
         let content = res.text().await?;
         assert!(content.contains("FooBarBaz"));
 
+        let id = location.split('/').last().unwrap();
         let res = client
-            .get(&format!("/raw{location}"))
+            .get(&format!("/p/raw/{id}"))
             .header(header::ACCEPT, "text/html; charset=utf-8")
             .send()
             .await?;

@@ -1,0 +1,1 @@
+ALTER TABLE entries ADD COLUMN is_private BOOLEAN DEFAULT 0;

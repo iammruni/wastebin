@@ -131,6 +131,8 @@ pub mod write {
         pub password: Option<String>,
         /// Title
         pub title: Option<String>,
+        /// Private or public
+        pub is_private: Option<bool>,
     }
 
     /// A compressed entry to be inserted.
@@ -255,6 +257,8 @@ pub mod read {
         pub expiration: Option<Expiration>,
         /// Entry will be deleted the next time it is fetched via [`Database::get`].
         pub must_be_deleted: bool,
+        /// Private or public
+        pub is_private: bool,
     }
 
     /// Potentially deleted or non-existent expired entry.
@@ -279,6 +283,8 @@ pub mod read {
         pub expiration: Option<String>,
         /// If entry is expired
         pub is_expired: bool,
+        /// Private or public
+        pub is_private: bool,
     }
 
     impl DatabaseEntry {
@@ -379,6 +385,7 @@ impl Handler {
             M::up(include_str!("migrations/0005-drop-text-column.sql")),
             M::up(include_str!("migrations/0006-add-nonce-column.sql")),
             M::up(include_str!("migrations/0007-add-title-column.sql")),
+            M::up(include_str!("migrations/0008-add-private-column.sql")),
         ]);
 
         migrations.to_latest(&mut conn)?;
@@ -457,11 +464,11 @@ impl Handler {
 
             let result = match entry.expires {
                 None => self.conn.execute(
-                    "INSERT INTO entries (id, uid, data, burn_after_reading, nonce, title) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![id.to_i64(), entry.uid, data, entry.burn_after_reading, nonce, title],
+                    "INSERT INTO entries (id, uid, data, burn_after_reading, nonce, title, is_private) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![id.to_i64(), entry.uid, data, entry.burn_after_reading, nonce, title, entry.is_private.unwrap_or(false)],
                 ),
                 Some(expires) => self.conn.execute(
-                    "INSERT INTO entries (id, uid, data, burn_after_reading, nonce, expires, title) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', ?6), ?7)",
+                    "INSERT INTO entries (id, uid, data, burn_after_reading, nonce, expires, title, is_private) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', ?6), ?7, ?8)",
                     params![
                         id.to_i64(),
                         entry.uid,
@@ -470,6 +477,7 @@ impl Handler {
                         nonce,
                         format!("{expires} seconds"),
                         title,
+                        entry.is_private.unwrap_or(false),
                     ],
                 ),
             };
@@ -500,7 +508,7 @@ impl Handler {
 
     fn get_metadata(&self, id: Id) -> Result<Metadata, Error> {
         let metadata = self.conn.query_row(
-            "SELECT uid, title, CAST(ROUND((julianday(expires) - julianday('now')) * 86400) AS INTEGER), burn_after_reading FROM entries WHERE id=?1",
+            "SELECT uid, title, CAST(ROUND((julianday(expires) - julianday('now')) * 86400) AS INTEGER), burn_after_reading, is_private FROM entries WHERE id=?1",
             params![id.to_i64()],
             |row| {
                 let expiration = row.get::<_, Option<i64>>(2)?
@@ -513,6 +521,7 @@ impl Handler {
                     title: row.get::<_, Option<String>>(1)?,
                     expiration,
                     must_be_deleted: row.get::<_, Option<bool>>(3)?.unwrap_or(false),
+                    is_private: row.get::<_, Option<bool>>(4)?.unwrap_or(false),
                 })
             }
         )?;
@@ -610,7 +619,7 @@ impl Handler {
     fn list(&self) -> Result<Vec<ListEntry>, Error> {
         let entries = self
             .conn
-            .prepare("SELECT id, title, nonce, expires, expires < datetime('now') FROM entries")?
+            .prepare("SELECT id, title, nonce, expires, expires < datetime('now'), is_private FROM entries")?
             .query_map([], |row| {
                 Ok(ListEntry {
                     id: Id::from(row.get::<_, i64>(0)?),
@@ -618,6 +627,7 @@ impl Handler {
                     is_encrypted: row.get::<_, Option<Vec<u8>>>(2)?.is_some(),
                     expiration: row.get(3)?,
                     is_expired: row.get::<_, Option<bool>>(4)?.unwrap_or_default(),
+                    is_private: row.get::<_, Option<bool>>(5)?.unwrap_or_default(),
                 })
             })?
             .collect::<Result<_, _>>()?;

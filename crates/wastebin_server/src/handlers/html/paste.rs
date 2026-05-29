@@ -44,6 +44,7 @@ pub(crate) struct Paste {
     title: Option<String>,
     /// Whether the paste's extension identifies it as Markdown, enabling the rendered-view toggle.
     is_markdown: bool,
+    is_private: bool,
 }
 
 /// Return `true` if `ext` identifies a Markdown paste.
@@ -57,6 +58,7 @@ pub async fn get<E>(
     State(page): State<Page>,
     State(db): State<Database>,
     State(highlighter): State<Highlighter>,
+    uri: axum::http::Uri,
     Path(id): Path<String>,
     uid: Option<Uid>,
     theme: Option<Theme>,
@@ -78,6 +80,10 @@ pub async fn get<E>(
             Ok(metadata) => metadata,
             Err(err) => return Err(err.into()),
         };
+
+        if let Some(redirect) = crate::handlers::check_visibility(metadata.is_private, &uri, &id)? {
+            return Ok(redirect.into_response());
+        }
 
         if metadata.must_be_deleted && !confirmed {
             return Ok(BurnConfirmation {
@@ -110,6 +116,7 @@ pub async fn get<E>(
             uid: owner_uid,
             title,
             expiration,
+            is_private,
             ..
         } = metadata;
 
@@ -146,6 +153,7 @@ pub async fn get<E>(
             html,
             title,
             is_markdown,
+            is_private,
         };
 
         Ok(paste.into_response())

@@ -90,7 +90,8 @@ async fn security_headers_layer(req: Request, next: Next) -> impl IntoResponse {
         "default-src 'none'; script-src 'self'; img-src * data: ; style-src 'self' data: ; font-src 'self' data: ; object-src 'none' ; base-uri 'none' ; frame-ancestors 'none' ; form-action 'self' ;",
     );
 
-    let csp = if req.uri().path().starts_with("/md/") {
+    let path = req.uri().path();
+    let csp = if path.starts_with("/md/") || path.starts_with("/p/md/") || path.starts_with("/s/md/") {
         CSP_RENDERED
     } else {
         CSP_STRICT
@@ -214,6 +215,39 @@ fn make_app(state: AppState, timeout: Duration, max_body_size: usize) -> Router 
         .route("/robots.txt", get(robots::get))
         .route("/theme", get(theme::get))
         .route("/new", post(insert::form::post))
+        // Public prefixed routes
+        .route("/p/qr/{id}", get(html::qr::get))
+        .route(
+            "/p/md/{id}",
+            get(html::rendered::get).post(html::rendered::get),
+        )
+        .route("/p/burn/{id}", get(html::burn::get))
+        .route(
+            "/p/{id}",
+            get(html::paste::get)
+                .post(html::paste::get)
+                .delete(delete::api::delete),
+        )
+        .route("/p/dl/{id}", get(download::get))
+        .route("/p/raw/{id}", get(raw::get))
+        .route("/p/delete/{id}", post(delete::form::delete))
+        // Private prefixed routes
+        .route("/s/qr/{id}", get(html::qr::get))
+        .route(
+            "/s/md/{id}",
+            get(html::rendered::get).post(html::rendered::get),
+        )
+        .route("/s/burn/{id}", get(html::burn::get))
+        .route(
+            "/s/{id}",
+            get(html::paste::get)
+                .post(html::paste::get)
+                .delete(delete::api::delete),
+        )
+        .route("/s/dl/{id}", get(download::get))
+        .route("/s/raw/{id}", get(raw::get))
+        .route("/s/delete/{id}", post(delete::form::delete))
+        // Legacy fallback routes (without prefix)
         .route("/qr/{id}", get(html::qr::get))
         .route(
             "/md/{id}",

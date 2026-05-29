@@ -1,6 +1,7 @@
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::extract::{Path, State};
+use axum::response::{IntoResponse, Response};
 use qrcodegen::QrCode;
 use url::Url;
 
@@ -11,20 +12,26 @@ use crate::handlers::html::{ErrorResponse, make_error};
 use crate::i18n::Lang;
 use crate::{Error, Page};
 use wastebin_core::db::Database;
-use wastebin_core::db::read::Metadata;
 use wastebin_core::expiration::Expiration;
 
 /// GET handler for a QR page.
 pub async fn get(
-    Path(id): Path<String>,
     State(page): State<Page>,
     State(db): State<Database>,
+    uri: axum::http::Uri,
+    Path(id): Path<String>,
     uid: Option<Uid>,
     theme: Option<Theme>,
     lang: Lang,
-) -> Result<Qr, ErrorResponse> {
+) -> Result<Response, ErrorResponse> {
     async {
         let key: Key = id.parse()?;
+
+        let metadata = db.get_metadata(key.id).await?;
+
+        if let Some(redirect) = super::super::check_visibility(metadata.is_private, &uri, &id)? {
+            return Ok(redirect.into_response());
+        }
 
         let code = {
             let page = page.clone();
@@ -34,12 +41,10 @@ pub async fn get(
                 .map_err(Error::from)??
         };
 
-        let Metadata {
-            uid: owner_uid,
-            title,
-            expiration,
-            ..
-        } = db.get_metadata(key.id).await?;
+        let owner_uid = metadata.uid;
+        let title = metadata.title.clone();
+        let expiration = metadata.expiration;
+        let is_private = metadata.is_private;
 
         let can_delete = uid
             .zip(owner_uid)
@@ -47,7 +52,7 @@ pub async fn get(
 
         let is_markdown = is_markdown_ext(key.ext.as_deref());
 
-        Ok(Qr {
+        let qr = Qr {
             page: page.clone(),
             theme: theme.clone(),
             lang,
@@ -58,7 +63,9 @@ pub async fn get(
             title,
             expiration,
             is_markdown,
-        })
+            is_private,
+        };
+        Ok(qr.into_response())
     }
     .await
     .map_err(|err| make_error(err, page, theme, lang))
@@ -78,6 +85,7 @@ pub(crate) struct Qr {
     code: qrcodegen::QrCode,
     title: Option<String>,
     expiration: Option<Expiration>,
+    is_private: bool,
 }
 
 impl Qr {

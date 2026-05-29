@@ -1,23 +1,30 @@
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::extract::{Path, State};
+use axum::response::{IntoResponse, Response};
 
 use crate::cache::Key;
 use crate::handlers::extract::Theme;
 use crate::handlers::html::qr::{code_from, dark_modules};
 use crate::handlers::html::{ErrorResponse, make_error};
 use crate::i18n::Lang;
-use crate::{Error, Page};
+use crate::{Database, Error, Page};
 
 /// GET handler for the burn page.
 pub async fn get(
-    Path(id): Path<String>,
     State(page): State<Page>,
+    State(db): State<Database>,
+    uri: axum::http::Uri,
+    Path(id): Path<String>,
     theme: Option<Theme>,
     lang: Lang,
-) -> Result<Burn, ErrorResponse> {
+) -> Result<Response, ErrorResponse> {
     async {
         let key: Key = id.parse()?;
+        let metadata = db.get_metadata(key.id).await.map_err(Error::from)?;
+        if let Some(redirect) = super::super::check_visibility(metadata.is_private, &uri, &id)? {
+            return Ok(redirect.into_response());
+        }
 
         let code = tokio::task::spawn_blocking({
             let page = page.clone();
@@ -26,13 +33,21 @@ pub async fn get(
         .await
         .map_err(Error::from)??;
 
-        Ok(Burn {
+        let link_arg = if metadata.is_private {
+            format!("s/{}", key)
+        } else {
+            format!("p/{}", key)
+        };
+
+        let burn = Burn {
             page: page.clone(),
-            key,
+            _key: key,
             code,
             theme: theme.clone(),
             lang,
-        })
+            link_arg,
+        };
+        Ok(burn.into_response())
     }
     .await
     .map_err(|err| make_error(err, page, theme, lang))
@@ -43,10 +58,11 @@ pub async fn get(
 #[template(path = "burn.html", escape = "none")]
 pub(crate) struct Burn {
     page: Page,
-    key: Key,
+    _key: Key,
     code: qrcodegen::QrCode,
     theme: Option<Theme>,
     lang: Lang,
+    link_arg: String,
 }
 
 impl Burn {

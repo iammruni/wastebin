@@ -30,6 +30,7 @@ pub(crate) struct Rendered {
     expiration: Option<Expiration>,
     html: String,
     title: Option<String>,
+    is_private: bool,
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -38,6 +39,7 @@ pub async fn get<E>(
     State(page): State<Page>,
     State(db): State<Database>,
     State(highlighter): State<Highlighter>,
+    uri: axum::http::Uri,
     Path(id): Path<String>,
     uid: Option<Uid>,
     theme: Option<Theme>,
@@ -71,8 +73,13 @@ pub async fn get<E>(
             uid: owner_uid,
             title,
             expiration,
+            is_private,
             ..
         } = metadata;
+
+        if let Some(redirect) = super::super::check_visibility(is_private, &uri, &id)? {
+            return Ok(redirect.into_response());
+        }
 
         let can_delete = uid
             .zip(owner_uid)
@@ -106,6 +113,7 @@ pub async fn get<E>(
             expiration,
             html,
             title,
+            is_private,
         };
 
         Ok(rendered.into_response())
@@ -132,9 +140,10 @@ mod tests {
         let res = client.post_form().form(&data).send().await?;
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         let location = res.headers().get("location").unwrap().to_str()?.to_owned();
+        let id = location.split('/').last().unwrap();
 
         let res = client
-            .get(&format!("/md{location}"))
+            .get(&format!("/p/md/{id}"))
             .header(header::ACCEPT, "text/html; charset=utf-8")
             .send()
             .await?;
@@ -153,7 +162,7 @@ mod tests {
     async fn missing_paste_is_not_found() -> Result<(), Box<dyn std::error::Error>> {
         let client = Client::new(StoreCookies(false)).await;
 
-        let res = client.get("/md/000000").send().await?;
+        let res = client.get("/p/md/000000").send().await?;
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
         Ok(())
@@ -170,8 +179,9 @@ mod tests {
 
         let res = client.post_form().form(&data).send().await?;
         let location = res.headers().get("location").unwrap().to_str()?.to_owned();
+        let id = location.split('/').last().unwrap();
 
-        let rendered = client.get(&format!("/md{location}")).send().await?;
+        let rendered = client.get(&format!("/p/md/{id}")).send().await?;
         let csp = rendered
             .headers()
             .get("content-security-policy")
