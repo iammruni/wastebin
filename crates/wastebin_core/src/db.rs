@@ -92,6 +92,14 @@ enum Command {
     Purge {
         result: oneshot::Sender<Result<Vec<Id>, Error>>,
     },
+    Update {
+        id: Id,
+        is_private: Option<bool>,
+        expires: Option<Option<std::num::NonZeroU32>>,
+        data: Option<Vec<u8>>,
+        nonce: Option<chacha20poly1305::XNonce>,
+        result: oneshot::Sender<Result<(), Error>>,
+    },
 }
 
 /// Database opening modes
@@ -447,6 +455,18 @@ impl Handler {
                         .send(self.purge())
                         .map_err(|_| Error::ResultSendError)?;
                 }
+                Command::Update {
+                    id,
+                    is_private,
+                    expires,
+                    data,
+                    nonce,
+                    result,
+                } => {
+                    result
+                        .send(self.update(id, is_private, expires, data, nonce))
+                        .map_err(|_| Error::ResultSendError)?;
+                }
             }
         }
     }
@@ -644,6 +664,52 @@ impl Handler {
 
         Ok(ids)
     }
+
+    fn update(
+        &self,
+        id: Id,
+        is_private: Option<bool>,
+        expires: Option<Option<std::num::NonZeroU32>>,
+        data: Option<Vec<u8>>,
+        nonce: Option<chacha20poly1305::XNonce>,
+    ) -> Result<(), Error> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        if let Some(is_private) = is_private {
+            tx.execute(
+                "UPDATE entries SET is_private = ?1 WHERE id = ?2",
+                params![is_private, id.to_i64()],
+            )?;
+        }
+
+        if let Some(expires) = expires {
+            match expires {
+                Some(secs) => {
+                    tx.execute(
+                        "UPDATE entries SET expires = datetime('now', ?1) WHERE id = ?2",
+                        params![format!("{secs} seconds"), id.to_i64()],
+                    )?;
+                }
+                None => {
+                    tx.execute(
+                        "UPDATE entries SET expires = NULL WHERE id = ?1",
+                        params![id.to_i64()],
+                    )?;
+                }
+            }
+        }
+
+        if let Some(data) = data {
+            let nonce_bytes = nonce.as_ref().map(|n| n.as_slice());
+            tx.execute(
+                "UPDATE entries SET data = ?1, nonce = ?2 WHERE id = ?3",
+                params![data, nonce_bytes, id.to_i64()],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 impl Database {
@@ -655,6 +721,46 @@ impl Database {
         let handler = Handler::new(method, receiver)?;
         let fut = async move { tokio::task::spawn_blocking(|| handler.run()).await? };
         Ok((Self { sender }, fut))
+    }
+
+    pub async fn update(
+        &self,
+        id: Id,
+        is_private: Option<bool>,
+        expires: Option<Option<std::num::NonZeroU32>>,
+        password: Option<String>,
+    ) -> Result<(), Error> {
+        let (data, nonce) = if let Some(pwd) = password {
+            let entry = self.get(id, None).await?;
+            let text = match entry {
+                read::Entry::Regular(data) => data.text,
+                read::Entry::Burned(data) => data.text,
+            };
+            let write_entry = write::Entry {
+                text,
+                password: Some(pwd),
+                ..Default::default()
+            };
+            let database_entry = write_entry.compress().await?.encrypt().await?;
+            (Some(database_entry.data), database_entry.nonce)
+        } else {
+            (None, None)
+        };
+
+        let (result, command_result) = oneshot::channel();
+        self.sender
+            .send(Command::Update {
+                id,
+                is_private,
+                expires,
+                data,
+                nonce,
+                result,
+            })
+            .await
+            .map_err(|_| Error::SendError)?;
+
+        command_result.await?
     }
 
     /// Insert `entry` under a new random id into the database and optionally set owner to `uid`.

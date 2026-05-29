@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod burn;
 pub mod index;
 pub mod paste;
@@ -54,9 +55,16 @@ pub fn make_error(
     theme: Option<Theme>,
     lang: Lang,
 ) -> ErrorResponse {
-    let description = error.to_string();
+    let error_message = error.to_string();
+    let status: StatusCode = error.into();
+    let description = match status {
+        StatusCode::NOT_FOUND | StatusCode::BAD_REQUEST => {
+            String::from("I felt a great disturbance in the Force, as if an error occurred and this page vanished. Check your path, young padawan.")
+        }
+        _ => error_message,
+    };
     (
-        error.into(),
+        status,
         Error {
             page,
             theme,

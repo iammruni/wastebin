@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}
+<span class="nav-title">Admin Control Panel</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+  <div class="admin-header">
+    <h1 class="admin-title">Active Pastes</h1>
+    <span class="admin-count">{{ entries.len() }} total</span>
+  </div>
+
+  <div class="table-wrapper">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Title</th>
+          <th>Visibility</th>
+          <th>Encrypted</th>
+          <th>Expiration</th>
+          <th style="text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <!-- Form associated with this row's inputs -->
+          <form id="form-{{ entry.id }}" method="POST" action="/admin/update/{{ entry.id }}"></form>
+
+          <td>
+            <a class="paste-id-link" href="{% if entry.is_private %}/s{% else %}/p{% endif %}/{{ entry.id }}">{{
+              entry.id }}</a>
+          </td>
+          <td>
+            {% match entry.title %}
+            {% when Some with (title) %}
+            <span class="paste-title">{{ title }}</span>
+            {% when None %}
+            <span class="paste-title-untitled">untitled</span>
+            {% endmatch %}
+          </td>
+          <td>
+            <select name="visibility" form="form-{{ entry.id }}" class="select-base">
+              <option value="public" {% if !entry.is_private %}selected{% endif %}>Public</option>
+              <option value="private" {% if entry.is_private %}selected{% endif %}>Private</option>
+            </select>
+          </td>
+          <td>
+            {% if entry.is_encrypted %}
+            <span class="encrypted-icon" style="font-size: var(--fs-xs);">🔒 Encrypted</span>
+            {% else %}
+            <input type="password" name="password" placeholder="Encrypt paste" form="form-{{ entry.id }}" class="input-base" style="width: 120px; font-size: var(--fs-xs); padding: 4px 8px;">
+            {% endif %}
+          </td>
+          <td>
+            <select name="expires" form="form-{{ entry.id }}" class="select-base">
+              <option value="" selected>Don't change ({% match entry.expiration %}{% when Some with (exp) %}{{ exp }}{% when None %}Never{% endmatch %})</option>
+              <option value="0">Never</option>
+              <option value="600">10m</option>
+              <option value="3600">1h</option>
+              <option value="86400">1d</option>
+              <option value="604800">1w</option>
+              <option value="2592000">1M</option>
+              <option value="31536000">1y</option>
+            </select>
+          </td>
+          <td style="text-align: right;">
+            <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end;">
+              <button type="submit" form="form-{{ entry.id }}" class="btn-update">Update</button>
+              <form method="POST" action="/admin/delete/{{ entry.id }}" style="display: inline;"
+                onsubmit="return confirm('Are you sure you want to delete this paste?');">
+                <button type="submit" class="btn-delete">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

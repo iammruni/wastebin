@@ -158,3 +158,11 @@ pub fn expiration_set() -> Result<expiration::ExpirationSet, Error> {
 
     Ok(set)
 }
+
+pub fn admin_user() -> String {
+    std::env::var("WASTEBIN_ADMIN_USER").unwrap_or_else(|_| "admin".to_string())
+}
+
+pub fn admin_password() -> String {
+    std::env::var("WASTEBIN_ADMIN_PASSWORD").unwrap_or_else(|_| "admin".to_string())
+}

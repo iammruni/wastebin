@@ -43,10 +43,10 @@ impl From<Error> for StatusCode {
             Error::Database(
                 db::Error::Delete | db::Error::Crypto(crypto::Error::ChaCha20Poly1305Decrypt),
             ) => StatusCode::FORBIDDEN,
-            Error::Database(db::Error::NoPassword) | Error::Id(_) | Error::UrlParsing(_) => {
-                StatusCode::BAD_REQUEST
-            }
-            Error::MalformedForm => StatusCode::UNPROCESSABLE_ENTITY,
+            Error::Database(db::Error::NoPassword)
+            | Error::Id(_)
+            | Error::UrlParsing(_)
+            | Error::MalformedForm => StatusCode::BAD_REQUEST,
             Error::Join(_)
             | Error::QrCode(_)
             | Error::Database(_)

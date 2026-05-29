@@ -1,4 +1,5 @@
 mod assets;
+mod auth;
 mod cache;
 mod env;
 mod errors;
@@ -215,6 +216,9 @@ fn make_app(state: AppState, timeout: Duration, max_body_size: usize) -> Router 
         .route("/robots.txt", get(robots::get))
         .route("/theme", get(theme::get))
         .route("/new", post(insert::form::post))
+        .route("/admin", get(html::admin::get))
+        .route("/admin/delete/{id}", post(html::admin::delete))
+        .route("/admin/update/{id}", post(html::admin::update))
         // Public prefixed routes
         .route("/p/qr/{id}", get(html::qr::get))
         .route(

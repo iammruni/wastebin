@@ -153,7 +153,7 @@ mod tests {
         data.insert("Hello", "World");
 
         let res = client.post_form().form(&data).send().await?;
-        assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 
         Ok(())
     }
